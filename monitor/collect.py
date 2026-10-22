@@ -73,6 +73,14 @@ def fetch(url: str, timeout: int = TIMEOUT_S) -> dict[str, Any]:
         return {"status": e.code, "error": "http", "body": b"", "ctype": None, "final_url": url}
     except (socket.timeout, TimeoutError):
         return {"status": None, "error": "timeout", "body": b"", "ctype": None, "final_url": url}
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", None)
+        cls = type(reason).__name__ if reason is not None else "URLError"
+        if isinstance(reason, ssl.SSLError):
+            cls = "SSL:" + (getattr(reason, "reason", None) or type(reason).__name__)
+        elif isinstance(reason, socket.gaierror):
+            cls = "DNS"
+        return {"status": None, "error": "network:" + str(cls), "body": b"", "ctype": None, "final_url": url}
     except Exception as e:  # noqa: BLE001 - classify, never leak details
         return {"status": None, "error": "network:" + type(e).__name__, "body": b"", "ctype": None, "final_url": url}
 
@@ -250,8 +258,10 @@ def collect(site_dir: Path, previous: dict, registry: dict, now: datetime | None
             source_status.append(st)
             continue
         result = None
+        attempts = []
         for url in src["endpoints"]:
             r = fetcher(url)
+            attempts.append({"url": url, "http_status": r["status"], "error": r["error"], "final_url": r.get("final_url")})
             items, err, meta = (parse_rss(r["body"]) if r["status"] == 200 and r["body"] else (None, r["error"] or f"HTTP {r['status']}", {}))
             result = {"url": url, "http_status": r["status"], "error": err, "items": items, "meta": meta,
                       "final_url": r.get("final_url"), "ctype": r.get("ctype")}
@@ -259,7 +269,7 @@ def collect(site_dir: Path, previous: dict, registry: dict, now: datetime | None
                 break
         st["endpoint"] = result["url"]
         st["http_status"] = result["http_status"]
-        st["endpoints_tried"] = [u for u in src["endpoints"]][: src["endpoints"].index(result["url"]) + 1]
+        st["attempts"] = attempts
         if result["items"] is None:
             st.update(operational_status="unavailable", detail=f"Fetch or parse failed ({result['error']}). Status unknown, not clear.")
             source_status.append(st)
