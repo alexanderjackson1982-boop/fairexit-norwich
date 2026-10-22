@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="fairexit-token" content="static">
+<meta name="fairexit-mode" content="static">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>FairExit Norwich</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>FairExit Norwich</h1>
+    <p class="sub" id="subtitle">Road conditions around six Norwich car parks · manual refresh only</p>
+  </div>
+  <div class="controls" id="controls">
+    <button id="btn-live" class="primary live-only" type="button">Refresh live (7 roads)</button>
+    <button id="btn-live-ext" class="live-only" type="button">Extended refresh (17 roads)</button>
+    <select id="syn-scenario" aria-label="Synthetic scenario">
+      <option value="mixed">Synthetic: mixed results</option>
+      <option value="empty">Synthetic: no incidents</option>
+      <option value="auth_error">Synthetic: 403 stop</option>
+    </select>
+    <button id="btn-syn" type="button">Load synthetic</button>
+    <button id="btn-clear" type="button">Clear</button>
+  </div>
+</header>
+
+<div id="mode-banner" class="banner banner-none" role="status"></div>
+
+<nav class="tabs" role="tablist" aria-label="Views">
+  <button role="tab" data-tab="dash" aria-selected="true">Dashboard</button>
+  <button role="tab" data-tab="detail" aria-selected="false">Site detail</button>
+  <button role="tab" data-tab="inv" aria-selected="false">Investigations</button>
+  <button role="tab" data-tab="src" aria-selected="false">Sources</button>
+  <button role="tab" data-tab="health" aria-selected="false">System health</button>
+</nav>
+
+<main>
+  <!-- DASHBOARD -->
+  <section id="tab-dash" class="tab" role="tabpanel">
+    <div class="dash">
+      <div class="mapwrap">
+        <div id="map" aria-label="Map of Norwich car parks, half-mile zones and monitored roads"></div>
+        <div class="mapbar">
+          <div class="zoomto" id="zoomto" aria-label="Zoom to site"></div>
+          <details class="layers" open>
+            <summary>Layers</summary>
+            <div id="layer-toggles"></div>
+          </details>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="cards" id="cards"></div>
+    </div>
+
+    <div class="two-col">
+      <section class="panel" aria-labelledby="ai-h">
+        <h2 id="ai-h">Active investigations</h2>
+        <div id="active-inv"><p class="muted">None open.</p></div>
+      </section>
+      <section class="panel" aria-labelledby="inc-h">
+        <h2 id="inc-h">Incidents in the Norwich box (TomTom)</h2>
+        <p class="caveat">Listed and mapped as supplied. Not matched to sites automatically: correlation of TomTom content is gated off under current terms.</p>
+        <div id="incidents"><p class="muted">No incident data loaded.</p></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- SITE DETAIL -->
+  <section id="tab-detail" class="tab" role="tabpanel" hidden>
+    <p class="caveat">Road samples describe the sampled road segment, not vehicles leaving a car park. Direction of travel is not guaranteed by a nearest-road query. Exit topology is desk-verified from mapping; no on-site survey has been done.</p>
+    <div id="sites" class="detail-list"></div>
+  </section>
+
+  <!-- INVESTIGATIONS -->
+  <section id="tab-inv" class="tab" role="tabpanel" hidden>
+    <div class="two-col">
+      <section class="panel">
+        <h2>Open an investigation</h2>
+        <p class="caveat" id="inv-note"></p>
+        <form id="inv-form" class="form" autocomplete="off">
+          <fieldset><legend>Sites</legend><div id="inv-sites" class="checks"></div></fieldset>
+          <label>Title <input name="title" required maxlength="200" placeholder="e.g. Queue reported on Market Avenue"></label>
+          <label>Roads (comma separated) <input name="roads" maxlength="200" placeholder="Market Avenue"></label>
+          <label>Reported event time, as the source states it <input name="reported_time_raw" maxlength="80" placeholder="e.g. 'around 5pm Saturday'"></label>
+          <label>Started from
+            <select name="origin">
+              <option value="manual">Manual entry</option>
+              <option value="independent_report">Independent incident report</option>
+              <option value="live_anomaly">Something seen on the live view</option>
+            </select>
+          </label>
+          <label>First evidence
+            <select name="source_id">
+              <option value="owner_note">Owner note</option>
+              <option value="tomtom_flow">TomTom live view inspected (no values kept)</option>
+              <option value="national_highways_rss">National Highways (link and title)</option>
+              <option value="metoffice_rss">Met Office warning (link and title)</option>
+            </select>
+          </label>
+          <label>Source link (https) <input name="link" maxlength="500" type="url"></label>
+          <label>Source time string <input name="source_time_raw" maxlength="80"></label>
+          <label>Note <textarea name="note" maxlength="1000" rows="3"></textarea></label>
+          <button class="primary live-only" type="submit">Open investigation</button>
+          <p class="form-msg" id="inv-msg" role="status"></p>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>All investigations</h2>
+        <div id="inv-list"><p class="muted">None yet.</p></div>
+      </section>
+    </div>
+    <section class="panel">
+      <div class="section-head"><h2>Correlation test cases <span class="tag tag-syn">synthetic</span></h2>
+        <button id="btn-corr" type="button">Run synthetic cases</button></div>
+      <p class="caveat">Invented reports that exercise corroboration, syndicated duplicates, conflicting sources, geographic mismatch, a major road inside a zone, and provider failure. They never touch live summaries.</p>
+      <div id="corr"></div>
+    </section>
+    <section class="panel">
+      <div class="section-head"><h2>Evidence state machine <span class="tag tag-syn">synthetic</span></h2>
+        <button id="btn-ev" type="button">Run synthetic timeline</button></div>
+      <div id="evidence"></div>
+    </section>
+  </section>
+
+  <!-- SOURCES -->
+  <section id="tab-src" class="tab" role="tabpanel" hidden>
+    <section class="panel">
+      <h2>Evidence sources</h2>
+      <div class="scroll"><table class="tbl" id="src-table"></table></div>
+    </section>
+    <div class="two-col">
+      <section class="panel">
+        <div class="section-head"><h2>National Highways feed</h2><button id="btn-nh" class="live-only" type="button">Refresh NH feed</button></div>
+        <div id="nh"><p class="muted">Not loaded.</p></div>
+      </section>
+      <section class="panel">
+        <div class="section-head"><h2>Met Office warnings</h2>
+          <div><button id="btn-met" class="live-only" type="button">Refresh</button> <button id="btn-met-syn" type="button">Synthetic</button></div></div>
+        <div id="metoffice"><p class="muted">Not loaded. One request per press.</p></div>
+      </section>
+    </div>
+    <section class="panel">
+      <h2>Manual corroboration links</h2>
+      <ul id="manual-sources" class="links"></ul>
+    </section>
+  </section>
+
+  <!-- HEALTH -->
+  <section id="tab-health" class="tab" role="tabpanel" hidden>
+    <div id="health"></div>
+  </section>
+</main>
+
+<footer>
+  <p id="attrib-traffic" class="muted"></p>
+  <p class="muted">Map tiles and road geometry © OpenStreetMap contributors (ODbL 1.0). Operator pages linked per site. This tool shows road conditions only. It cannot show that a particular motorist tried to leave, had no alternative, or is entitled to have a parking charge cancelled.</p>
+  <p class="muted live-only"><a href="/api/report/operational">Download operational report (request counts only)</a></p>
+</footer>
+<script src="static/vendor/leaflet/leaflet.js"></script>
+<script src="static/app.js"></script>
+</body>
+</html>
