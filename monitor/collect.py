@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import socket
 import ssl
@@ -243,6 +244,9 @@ def collect(site_dir: Path, previous: dict, registry: dict, now: datetime | None
 
     source_status, normalised, weather = [], [], []
     for src in registry["sources"]:
+        var = src.get("endpoint_variable")
+        if var and os.environ.get(var, "").startswith("https://"):
+            src = {**src, "endpoints": [os.environ[var]] + list(src["endpoints"])}
         st = {"id": src["id"], "provider": src["provider"], "kind": src["kind"], "publish": src["publish"],
               "authentication": src["authentication"], "refresh_minutes": src["refresh_minutes"],
               "licence": src["licence"], "licence_url": src["licence_url"], "retention": src["retention"],
@@ -250,7 +254,10 @@ def collect(site_dir: Path, previous: dict, registry: dict, now: datetime | None
               "endpoint": src["endpoints"][0] if src["endpoints"] else None,
               "last_successful_check_utc": (prev_status.get(src["id"]) or {}).get("last_successful_check_utc")}
         if not src["endpoints"]:
-            st.update(operational_status="not polled", detail=src["licence"])
+            if src.get("pending_reason"):
+                st.update(operational_status="pending: feed address needed", detail=src["pending_reason"])
+            else:
+                st.update(operational_status="not polled", detail=src["licence"])
             source_status.append(st)
             continue
         if not src["publish"] and not probe:
@@ -366,7 +373,9 @@ def collect(site_dir: Path, previous: dict, registry: dict, now: datetime | None
     }
     status = {
         "generated_at_utc": now_s,
-        "last_successful_update_utc": now_s if any(incident_sources_ok.values()) else (previous.get("status") or {}).get("last_successful_update_utc"),
+        "last_successful_update_utc": now_s if any(s.get("operational_status") == "operational" for s in source_status) else (previous.get("status") or {}).get("last_successful_update_utc"),
+        "incident_sources_operational": sum(1 for v in incident_sources_ok.values() if v),
+        "last_incident_update_utc": now_s if any(incident_sources_ok.values()) else (previous.get("status") or {}).get("last_incident_update_utc"),
         "stale_after_minutes": STALE_AFTER_MIN,
         "schedule": "Every 15 minutes, 06:00 to 23:59 UTC, best effort (GitHub may delay or skip runs).",
         "sources": source_status,

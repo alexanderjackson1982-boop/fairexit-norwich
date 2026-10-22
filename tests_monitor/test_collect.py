@@ -43,8 +43,11 @@ def fake_fetcher(bodies):
     return f
 
 
-UNPL = REG["sources"][0]["endpoints"][0]
-PLAN = REG["sources"][1]["endpoints"][0]
+import os
+UNPL = "https://feeds.example.test/nh/UnplannedEvents.xml"
+PLAN = "https://feeds.example.test/nh/AllEvents.xml"
+os.environ["FAIREXIT_NH_RSS_URL"] = UNPL
+os.environ["FAIREXIT_NH_PLANNED_RSS_URL"] = PLAN
 MET = REG["sources"][2]["endpoints"][0]
 MET_RSS = b'<?xml version="1.0"?><rss version="2.0"><channel><title>Met</title></channel></rss>'
 
@@ -113,11 +116,12 @@ class TestCollect(unittest.TestCase):
         self.assertEqual(pub["site_summary"]["longwater"]["incidents"], 1)
 
     def test_all_incident_feeds_failed_is_insufficient_not_clear(self):
-        prev_status = {"last_successful_update_utc": "2026-10-22T10:00:00+00:00"}
+        prev_status = {"last_incident_update_utc": "2026-10-22T10:00:00+00:00"}
         pub, st = self.run_collect({MET: MET_RSS}, previous={"status": prev_status})
         for v in pub["site_summary"].values():
             self.assertEqual(v["label"], LABEL_INSUFFICIENT)
-        self.assertEqual(st["last_successful_update_utc"], "2026-10-22T10:00:00+00:00")
+        self.assertEqual(st["last_incident_update_utc"], "2026-10-22T10:00:00+00:00")  # kept, not advanced
+        self.assertEqual(st["incident_sources_operational"], 0)
 
     def test_first_observed_kept_and_unlisted_expiry(self):
         pub1, st1 = self.run_collect({UNPL: rss(A47_LONGWATER), PLAN: rss(), MET: MET_RSS})
@@ -145,6 +149,33 @@ class TestCollect(unittest.TestCase):
         self.assertTrue(published_sources <= {"national_highways_unplanned", "national_highways_planned"})
         bbc = next(s for s in st["sources"] if s["id"] == "bbc_norfolk")
         self.assertIn("restricted", bbc["operational_status"])
+
+    def test_pending_when_no_feed_address(self):
+        saved = os.environ.pop("FAIREXIT_NH_RSS_URL"), os.environ.pop("FAIREXIT_NH_PLANNED_RSS_URL")
+        try:
+            calls = []
+            def f(url):
+                calls.append(url)
+                return {"status": 200, "error": None, "body": MET_RSS, "ctype": "x", "final_url": url}
+            pub, st = collect(SITE, {}, REG, now=NOW, fetcher=f)
+            self.assertEqual(calls, [MET])  # dead NH hosts are not polled
+            nh = next(s for s in st["sources"] if s["id"] == "national_highways_unplanned")
+            self.assertEqual(nh["operational_status"], "pending: feed address needed")
+            for v in pub["site_summary"].values():
+                self.assertEqual(v["label"], LABEL_INSUFFICIENT)  # weather alone never means "clear"
+            self.assertEqual(st["incident_sources_operational"], 0)
+            self.assertEqual(st["last_successful_update_utc"], NOW.isoformat(timespec="seconds"))
+        finally:
+            os.environ["FAIREXIT_NH_RSS_URL"], os.environ["FAIREXIT_NH_PLANNED_RSS_URL"] = saved
+
+    def test_variable_must_be_https(self):
+        os.environ["FAIREXIT_NH_RSS_URL"] = "http://insecure.example/feed.xml"
+        try:
+            calls = []
+            collect(SITE, {}, REG, now=NOW, fetcher=lambda u: calls.append(u) or {"status": None, "error": "timeout", "body": b"", "final_url": u})
+            self.assertNotIn("http://insecure.example/feed.xml", calls)
+        finally:
+            os.environ["FAIREXIT_NH_RSS_URL"] = UNPL
 
     def test_registry_has_required_fields(self):
         need = {"provider", "endpoints", "authentication", "refresh_minutes", "licence", "retention", "publish", "error_handling"}

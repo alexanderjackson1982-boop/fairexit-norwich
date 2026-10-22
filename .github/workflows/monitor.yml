@@ -42,6 +42,9 @@ jobs:
         env:
           PAGES: https://alexanderjackson1982-boop.github.io/fairexit-norwich
           PROBE: ${{ inputs.probe && '--probe' || '' }}
+          # Public feed addresses (not secrets). Set in Settings > Secrets and variables > Actions > Variables.
+          FAIREXIT_NH_RSS_URL: ${{ vars.FAIREXIT_NH_RSS_URL }}
+          FAIREXIT_NH_PLANNED_RSS_URL: ${{ vars.FAIREXIT_NH_PLANNED_RSS_URL }}
         run: |
           python3 -m monitor.collect --site site \
             --previous-incidents "$PAGES/data/live/incidents.json" \

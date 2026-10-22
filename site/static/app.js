@@ -301,12 +301,16 @@ function renderLive() {
   }
   const last = LIVE_STATUS.last_successful_update_utc;
   const ageMin = last ? (Date.now() - new Date(last).getTime()) / 60000 : Infinity;
-  up.textContent = `Last successful update ${last ? fmtTime(last) : "never"}${ageMin > LIVE_STATUS.stale_after_minutes ? " · STALE: older than " + LIVE_STATUS.stale_after_minutes + " min" : ""} · ${LIVE_STATUS.schedule}`;
+  const inc = LIVE_STATUS.last_incident_update_utc;
+  up.textContent = `Last successful update ${last ? fmtTime(last) : "never"}${ageMin > LIVE_STATUS.stale_after_minutes ? " · STALE: older than " + LIVE_STATUS.stale_after_minutes + " min" : ""} · incident feeds last updated ${inc ? fmtTime(inc) : "never"} · ${LIVE_STATUS.schedule}`;
   up.className = "meta" + (ageMin > LIVE_STATUS.stale_after_minutes ? " stale" : "");
   document.getElementById("live-coverage").textContent = LIVE.coverage_note + " " + LIVE.label_note;
   document.getElementById("live-traffic-note").textContent = "Traffic speed measurements: " + LIVE.traffic_measurements;
   const rel = LIVE.items.filter(i => i.relevant), other = LIVE.items.filter(i => !i.relevant);
-  if (!rel.length) items.appendChild(el("p", { class: "muted", text: "No listed incident matches any of the six car parks right now. That is not proof there is no disruption." }));
+  if (!LIVE_STATUS.incident_sources_operational) {
+    const pend = LIVE_STATUS.sources.filter(s => s.kind !== "weather" && s.publish && s.operational_status !== "operational").map(s => s.provider);
+    items.appendChild(el("p", { class: "notice notice-warn", text: `No incident feed is operational right now${pend.length ? " (" + pend.join("; ") + ")" : ""}. Every car park shows "insufficient evidence": road status is unknown, not clear. See Source status below.` }));
+  } else if (!rel.length) items.appendChild(el("p", { class: "muted", text: "No listed incident matches any of the six car parks right now. That is not proof there is no disruption." }));
   for (const i of rel) items.appendChild(liveItemEl(i, false));
   if (other.length) {
     const d = el("details", null, el("summary", { text: `${other.length} other Norwich-area report(s) not matched to a car park` }));

@@ -6,12 +6,7 @@
       "id": "national_highways_unplanned",
       "provider": "National Highways (Traffic England) — unplanned events RSS",
       "kind": "incident",
-      "endpoints": [
-        "https://m.highwaysengland.co.uk/feeds/rss/UnplannedEvents.xml",
-        "https://m.nationalhighways.co.uk/feeds/rss/UnplannedEvents.xml",
-        "https://www.trafficengland.com/feeds/rss/UnplannedEvents.xml",
-        "https://m.highways.gov.uk/feeds/rss/UnplannedEvents.xml"
-      ],
+      "endpoints": [],
       "authentication": "none",
       "refresh_minutes": 15,
       "licence": "Open Government Licence v3.0 (data.gov.uk dataset 'Live traffic information from Highways England')",
@@ -23,18 +18,15 @@
       "authoritative": true,
       "coverage": "Strategic road network only (A47, A11 and other trunk roads). Local access roads are not covered.",
       "geo_filter": "Norfolk county or a point inside the Norwich box",
-      "error_handling": "Timeout 20 s, 2 MB cap, one retry on network/5xx, then marked unavailable. Other sources continue."
+      "error_handling": "Timeout 20 s, 2 MB cap, one retry on network/5xx, then marked unavailable. Other sources continue.",
+      "pending_reason": "Pending feed address. Checked 22 Oct 2026 from GitHub runners: m.highwaysengland.co.uk TLS certificate expired 8 Oct 2026 (and its HTTP path returns 404); m.highways.gov.uk and m.nationalhighways.co.uk do not resolve; www.trafficengland.com returns 404. Set the repository variable FAIREXIT_NH_RSS_URL (unplanned) / FAIREXIT_NH_PLANNED_RSS_URL (planned) to the address Work tested.",
+      "endpoint_variable": "FAIREXIT_NH_RSS_URL"
     },
     {
       "id": "national_highways_planned",
       "provider": "National Highways (Traffic England) — current and future planned events RSS",
       "kind": "roadworks",
-      "endpoints": [
-        "https://m.highwaysengland.co.uk/feeds/rss/AllEvents.xml",
-        "https://m.nationalhighways.co.uk/feeds/rss/AllEvents.xml",
-        "https://www.trafficengland.com/feeds/rss/AllEvents.xml",
-        "https://m.highways.gov.uk/feeds/rss/AllEvents.xml"
-      ],
+      "endpoints": [],
       "authentication": "none",
       "refresh_minutes": 15,
       "licence": "Open Government Licence v3.0 (same dataset)",
@@ -46,7 +38,9 @@
       "authoritative": true,
       "coverage": "Strategic road network roadworks and closures.",
       "geo_filter": "Norfolk county or a point inside the Norwich box",
-      "error_handling": "As above."
+      "error_handling": "As above.",
+      "pending_reason": "Pending feed address. Checked 22 Oct 2026 from GitHub runners: m.highwaysengland.co.uk TLS certificate expired 8 Oct 2026 (and its HTTP path returns 404); m.highways.gov.uk and m.nationalhighways.co.uk do not resolve; www.trafficengland.com returns 404. Set the repository variable FAIREXIT_NH_RSS_URL (unplanned) / FAIREXIT_NH_PLANNED_RSS_URL (planned) to the address Work tested.",
+      "endpoint_variable": "FAIREXIT_NH_PLANNED_RSS_URL"
     },
     {
       "id": "metoffice_east",
