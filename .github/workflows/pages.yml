@@ -1,0 +1,45 @@
+name: Deploy public preview to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout approved public material
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Require the existing public preview
+        shell: bash
+        run: |
+          test -f site/index.html || { echo "Claude must add the approved static preview to site/ first."; exit 1; }
+          test -z "$(find site -type l -print -quit)" || { echo "Symlinks are not allowed in the public preview."; exit 1; }
+          test -z "$(find site -type f \( -name '.env*' -o -name '*.pem' -o -name '*.key' \) -print -quit)" || { echo "Remove private configuration from the public preview."; exit 1; }
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload only the approved static preview
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+          retention-days: 1
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
