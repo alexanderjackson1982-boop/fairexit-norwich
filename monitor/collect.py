@@ -259,6 +259,7 @@ def collect(site_dir: Path, previous: dict, registry: dict, now: datetime | None
                 break
         st["endpoint"] = result["url"]
         st["http_status"] = result["http_status"]
+        st["endpoints_tried"] = [u for u in src["endpoints"]][: src["endpoints"].index(result["url"]) + 1]
         if result["items"] is None:
             st.update(operational_status="unavailable", detail=f"Fetch or parse failed ({result['error']}). Status unknown, not clear.")
             source_status.append(st)
