@@ -178,3 +178,11 @@ footer { padding: 8px 20px 24px; max-width: 1600px; margin: 0 auto; font-size: 1
 }
 .chk { display: inline-flex; align-items: center; gap: 6px; }
 .chk input, .ly input { width: auto; padding: 0; margin: 0; }
+
+.tag-live { background: var(--live-bg); color: var(--live-ink); font-size: 12px; vertical-align: middle; }
+.live-panel { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.live-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; font-size: 13.5px; }
+.live-item.rel { border-left: 4px solid #a3141c; }
+.live-item.gone { opacity: .7; border-style: dashed; }
+.live-src summary { cursor: pointer; font-size: 13px; font-weight: 600; margin-top: 6px; }
+.stale { color: var(--err-ink); font-weight: 600; }

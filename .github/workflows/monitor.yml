@@ -1,0 +1,57 @@
+# FairExit public monitor: collect permitted open-data incident feeds every
+# 15 minutes (06:00-23:59 UTC), match them to the six car park zones, and
+# publish the result to GitHub Pages together with the reviewed static site.
+#
+# No secrets are used or needed. TomTom is never called from here.
+# GitHub schedules are best effort: runs can be delayed or skipped. The site
+# shows the last successful update and flags it as stale after 45 minutes.
+name: FairExit live monitor
+on:
+  schedule:
+    - cron: "7,22,37,52 6-23 * * *"
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "Also health-check restricted sources (HTTP status and item count only; nothing displayed)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+jobs:
+  collect-and-publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Monitor tests
+        run: python3 -m unittest discover -s tests_monitor -t .
+      - name: Collect permitted feeds
+        env:
+          PAGES: https://alexanderjackson1982-boop.github.io/fairexit-norwich
+          PROBE: ${{ inputs.probe && '--probe' || '' }}
+        run: |
+          python3 -m monitor.collect --site site \
+            --previous-incidents "$PAGES/data/live/incidents.json" \
+            --previous-status "$PAGES/data/live/monitor-status.json" $PROBE | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check public output
+        run: python3 -m monitor.check_public site
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: site
+          retention-days: 1
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

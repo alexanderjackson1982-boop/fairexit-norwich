@@ -43,13 +43,17 @@ const STATIC_ROUTES = {
   "/api/synthetic?scenario=mixed": "data/synthetic-mixed.json", "/api/synthetic?scenario=empty": "data/synthetic-empty.json",
   "/api/synthetic?scenario=auth_error": "data/synthetic-auth_error.json", "/api/synthetic/metoffice": "data/synthetic-metoffice.json",
   "/api/synthetic/evidence": "data/synthetic-evidence.json", "/api/synthetic/correlation": "data/synthetic-correlation.json",
+  "/api/live/incidents": "data/live/incidents.json", "/api/live/status": "data/live/monitor-status.json",
 };
+let LIVE = null, LIVE_STATUS = null;  // public monitor output (open data only, never synthetic)
 async function api(path, opts = {}) {
   if (MODE === "static") {
     if (path === "/api/investigations") return { investigations: [] };
     const f = STATIC_ROUTES[path];
     if (!f) throw new Error("Not available in the public preview. Run FairExit locally for live data.");
-    const r = await fetch(f, { cache: "no-store" }); return r.json();
+    const r = await fetch(f, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
   }
   const r = await fetch(path, { cache: "no-store", credentials: "same-origin", ...opts,
     headers: { "X-FairExit-Token": TOKEN, ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) } });
@@ -104,7 +108,7 @@ const LAYERS = [
   ["carparks", "Car parks", true], ["zones", "Half-mile zones (805 m)", true], ["exits", "Mapped exits & entrances", true],
   ["monitored", "Roads with a sample point", true], ["unmonitored", "Zone roads without samples (gaps)", true],
   ["minor", "Minor/residential roads", false], ["samples", "Sample points", true], ["live", "Segments returned this refresh", true],
-  ["incidents", "Incidents", true], ["invs", "Investigations", true],
+  ["incidents", "Incidents", true], ["liveinc", "Live incidents (open data)", true], ["invs", "Investigations", true],
 ];
 function tipEl(t) { return el("span", { text: t }); }
 function arrowIcon(bearing, cls) {
@@ -247,6 +251,79 @@ function samplePopup(p) {
   box.appendChild(link(p.source_url, "OSM way " + p.osm_way_id));
   return box;
 }
+function drawLive() {
+  if (!L_.liveinc) return;
+  L_.liveinc.clearLayers();
+  if (!LIVE) return;
+  for (const i of LIVE.items) {
+    if (!i.point) continue;
+    const col = !i.listed ? "#9aa0a6" : i.relevant ? "#a3141c" : "#c46a12";
+    const m = L.circleMarker([i.point.lat, i.point.lon], { radius: i.relevant ? 9 : 6, color: col, weight: 3, fillColor: "#ffffff", fillOpacity: 0.95, dashArray: i.listed ? null : "3 3" });
+    m.bindTooltip(tipEl((i.sources[0] || {}).title || "Incident"));
+    m.bindPopup(() => liveItemEl(i, true));
+    m.addTo(L_.liveinc);
+  }
+}
+function liveItemEl(i, compact) {
+  const s0 = i.sources[0] || {};
+  const box = el("div", { class: "live-item" + (i.relevant ? " rel" : "") + (i.listed ? "" : " gone") },
+    el("div", { class: "inv-h" }, el("strong", { text: s0.title || "Incident" }), el("span", { class: "pill " + (i.listed ? "st-cong" : "st-none"), text: i.status })));
+  const aff = Object.entries(i.evidence_label || {});
+  box.appendChild(el("div", { text: aff.length ? "Possibly affected: " + aff.map(([sid, lab]) => `${siteName(sid)} (${lab}; ${String((i.potential_exit_impact || {})[sid] || "").replaceAll("_", " ")})`).join(" · ") : "Not matched to any registered car park (outside the zones or location too vague)." }));
+  const times = [`first seen by monitor ${fmtTime(i.first_observed_utc)}`];
+  if (s0.published && s0.published.raw) times.push("source published " + (s0.published.utc ? fmtTime(s0.published.utc) : `"${s0.published.raw}" (as stated)`));
+  if (s0.event_start && s0.event_start.raw) times.push("event start " + (s0.event_start.utc ? fmtTime(s0.event_start.utc) : `"${s0.event_start.raw}" (as stated)`));
+  box.appendChild(el("div", { class: "meta", text: times.join(" · ") + (i.roads.length ? " · roads: " + i.roads.join(", ") : "") }));
+  if (!compact && s0.summary) box.appendChild(el("p", { class: "meta", text: s0.summary }));
+  if (i.contradictions && i.contradictions.length) box.appendChild(el("div", { class: "reason", text: "Conflict: " + i.contradictions.join("; ") }));
+  if (!compact) box.appendChild(el("div", { class: "meta", text: "Basis: " + (i.confidence_basis || []).join(" · ") }));
+  const srcLine = el("div", { class: "meta" }, `${i.sources.length} report(s) · `);
+  for (const s of i.sources) { srcLine.append(s.link ? link(s.link, s.source_id.replaceAll("_", " ")) : el("span", { text: s.source_id })); srcLine.append(" "); }
+  box.appendChild(srcLine);
+  return box;
+}
+async function loadLive() {
+  if (MODE !== "static") return;
+  try { [LIVE, LIVE_STATUS] = await Promise.all([api("/api/live/incidents"), api("/api/live/status")]); }
+  catch (e) { LIVE = null; LIVE_STATUS = null; }
+  renderLive(); renderCards(); drawLive();
+}
+function renderLive() {
+  const panel = document.getElementById("live-panel");
+  if (MODE !== "static") return;
+  panel.hidden = false;
+  const up = document.getElementById("live-updated"), items = document.getElementById("live-items");
+  clear(items);
+  if (!LIVE || !LIVE_STATUS || LIVE.synthetic !== false) {
+    up.textContent = "";
+    items.appendChild(el("p", { class: "reason", text: "The live monitor has not published yet (or this deployment was made without it). Incident status is unknown, not clear." }));
+    return;
+  }
+  const last = LIVE_STATUS.last_successful_update_utc;
+  const ageMin = last ? (Date.now() - new Date(last).getTime()) / 60000 : Infinity;
+  up.textContent = `Last successful update ${last ? fmtTime(last) : "never"}${ageMin > LIVE_STATUS.stale_after_minutes ? " · STALE: older than " + LIVE_STATUS.stale_after_minutes + " min" : ""} · ${LIVE_STATUS.schedule}`;
+  up.className = "meta" + (ageMin > LIVE_STATUS.stale_after_minutes ? " stale" : "");
+  document.getElementById("live-coverage").textContent = LIVE.coverage_note + " " + LIVE.label_note;
+  document.getElementById("live-traffic-note").textContent = "Traffic speed measurements: " + LIVE.traffic_measurements;
+  const rel = LIVE.items.filter(i => i.relevant), other = LIVE.items.filter(i => !i.relevant);
+  if (!rel.length) items.appendChild(el("p", { class: "muted", text: "No listed incident matches any of the six car parks right now. That is not proof there is no disruption." }));
+  for (const i of rel) items.appendChild(liveItemEl(i, false));
+  if (other.length) {
+    const d = el("details", null, el("summary", { text: `${other.length} other Norwich-area report(s) not matched to a car park` }));
+    for (const i of other) d.appendChild(liveItemEl(i, true));
+    items.appendChild(d);
+  }
+  if (LIVE.weather && LIVE.weather.length) items.appendChild(el("p", { class: "meta" }, `Met Office: ${LIVE.weather.length} regional warning(s) (context only) · `, link((LIVE.weather[0] || {}).link, "details")));
+  const t = document.getElementById("live-src-table"); clear(t);
+  t.appendChild(el("thead", null, el("tr", null, ...["Provider", "Status", "Endpoint", "Auth", "Refresh", "Licence", "Retention", "Last success", "Error handling"].map(h => el("th", { text: h })))));
+  const tb = el("tbody");
+  for (const s of LIVE_STATUS.sources) tb.appendChild(el("tr", null, el("td", { text: s.provider }), el("td", { text: s.operational_status + (s.detail ? " · " + s.detail : "") }),
+    el("td", null, s.endpoint ? link(s.endpoint.replace(/^http:/, "https:"), new URL(s.endpoint).hostname) : el("span", { text: "none" })), el("td", { text: s.authentication }),
+    el("td", { text: s.refresh_minutes ? s.refresh_minutes + " min" : "—" }), el("td", null, link(s.licence_url, s.licence)), el("td", { text: s.retention.replaceAll("_", " ") }),
+    el("td", { text: s.last_successful_check_utc ? fmtTime(s.last_successful_check_utc) : "never" }), el("td", { text: s.error_handling })));
+  t.appendChild(tb);
+}
+
 function renderLegend() {
   const lg = document.getElementById("legend"); clear(lg);
   const item = (cls, t) => el("span", { class: "li" }, el("span", { class: "sw " + cls }), t);
@@ -260,7 +337,11 @@ const STATUS_CLASS = { normal: "st-normal", congested: "st-cong", severe: "st-se
 function renderCards() {
   const host = document.getElementById("cards"); clear(host);
   for (const s of SITES.sites) {
-    const st = view && view.site_status ? view.site_status[s.id] : { state: "no data loaded", class: "none", detail: MODE === "static" ? "Public preview: no live data." : "Press Refresh." };
+    const lv = LIVE && LIVE.site_summary ? LIVE.site_summary[s.id] : null;
+    const liveCls = lv ? ({ "confirmed disruption": "severe", "probable disruption": "severe", "possible disruption": "congested", "insufficient evidence": "insufficient" }[lv.label] || "normal") : "none";
+    const st = view && view.site_status ? view.site_status[s.id]
+      : MODE === "static" ? (lv ? { state: lv.label, class: liveCls, detail: "Live incident monitor (open data). Traffic speeds unavailable on the public site." } : { state: "monitor not yet published", class: "insufficient", detail: "Incident status unknown." })
+      : { state: "no data loaded", class: "none", detail: "Press Refresh." };
     const pts = allPoints().filter(p => (p.site_ids || []).includes(s.id) && p.tier !== "excluded");
     const roads = [...new Set(pts.map(p => p.road.replace(/ \(.*\)$/, "")))];
     const open = INVS.filter(i => i.site_ids.includes(s.id) && !["closed", "invalidated"].includes(i.status)).length;
@@ -271,7 +352,9 @@ function renderCards() {
         el("span", { class: "k", text: "Roads" }), el("span", { text: roads.join(", ") || "none" }),
         el("span", { class: "k", text: "Delay" }), el("span", { text: st.synthetic_delay_s !== undefined ? `${st.synthetic_delay_s} s (SYNTHETIC)` : (view && !view.synthetic ? "not derived (licence); see readings" : "—") }),
         el("span", { class: "k", text: "Investigations" }), el("span", { text: open ? `${open} open` : "none open" }),
-        el("span", { class: "k", text: "Last refresh" }), el("span", { text: view ? fmtTime(view.cycle_finished_at_utc) + (view.synthetic ? " (synthetic)" : "") : "—" }),
+        ...(MODE === "static" ? [el("span", { class: "k", text: "Live incidents" }), el("span", { text: lv ? `${lv.incidents} listed · ${lv.label}` : "unknown" }),
+          el("span", { class: "k", text: "Traffic speeds" }), el("span", { text: "unavailable on public site (licence)" })] : []),
+        el("span", { class: "k", text: "Last refresh" }), el("span", { text: view ? fmtTime(view.cycle_finished_at_utc) + (view.synthetic ? " (synthetic)" : "") : (MODE === "static" && LIVE_STATUS && LIVE_STATUS.last_successful_update_utc ? fmtTime(LIVE_STATUS.last_successful_update_utc) + " (monitor)" : "—") }),
         el("span", { class: "k", text: "Coverage" }), el("span", { text: `${pts.filter(p => p.tier === "core").length} tested + ${pts.filter(p => p.tier === "extended").length} candidate samples` })),
       s.id === "castle_quarter_2" ? el("div", { class: "notice notice-warn", text: "Direct exit flow unavailable (provider returned HTTP 400). Nearby context only." }) : null,
       s.id === "ikea_hall_road" ? el("div", { class: "notice notice-info", text: "Hall Road sample = surrounding road, not exit flow." }) : null,
@@ -594,4 +677,9 @@ window.addEventListener("pagehide", () => { view = null; });
   [SITES, STATUS, MAPDATA] = await Promise.all([api("/api/sites"), api("/api/status"), api("/api/map")]);
   try { INVS = (await api("/api/investigations")).investigations; } catch (e) { INVS = []; }
   initMap(); initInvForm(); renderAll(); renderInvs(); renderSources().catch(() => {});
+  if (MODE === "static") {
+    await loadLive();
+    // Public site only: re-read the published monitor file (same origin, no provider requests).
+    setInterval(loadLive, 5 * 60 * 1000);
+  }
 })();
