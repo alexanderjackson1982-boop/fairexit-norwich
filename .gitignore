@@ -1,0 +1,17 @@
+# Public demonstration repository only; this is not a complete secret scanner.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+private/
+backend/
+monitoring/
+restricted/
+raw_traffic/
+work/
+outputs/
+node_modules/
+.DS_Store
+
